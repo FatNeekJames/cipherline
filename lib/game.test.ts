@@ -21,8 +21,27 @@ test('alternates the active axis and prevents tile reuse', () => {
   assert.equal(afterTwo.every((cell) => cell.row === 3), true);
 });
 
+test('supports larger matrices and excludes ICE-locked cells', () => {
+  const cells = activeCells([], 7, [{ row: 0, col: 3 }]);
+  assert.equal(cells.length, 6);
+  assert.equal(cells.every((cell) => cell.row === 0), true);
+  assert.equal(cells.some((cell) => cell.col === 3), false);
+});
+
 test('all thirty campaign puzzles are valid and perfectly solvable', () => {
   for (let level = 1; level <= 30; level += 1) assert.equal(validatePuzzle(generatePuzzle(level)), true);
+});
+
+test('campaign difficulty escalates across all five network tiers', () => {
+  assert.deepEqual([1, 7, 13, 19, 25].map((level) => generatePuzzle(level).size), [5, 6, 7, 8, 9]);
+  assert.equal(generatePuzzle(13).blocked.length > 0, true);
+  assert.equal(generatePuzzle(19).instantTrace, true);
+  assert.equal(generatePuzzle(25).selectionCost, 0.6);
+  assert.equal(generatePuzzle(25).targets.length, 4);
+  for (const level of [13, 19, 25, 30]) {
+    const puzzle = generatePuzzle(level);
+    assert.equal(puzzle.blocked.some((blocked) => puzzle.solution.some((cell) => cell.row === blocked.row && cell.col === blocked.col)), false);
+  }
 });
 
 test('scoring rewards success and penalizes hints', () => {

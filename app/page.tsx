@@ -112,7 +112,7 @@ function HomeScreen({ save, startCampaign, startEndless, setScreen }: { save: Sa
         <div className="signal-line"><span style={{width: `${Math.max(6, (save.unlockedLevel / 30) * 100)}%`}} /></div>
         <div className="visual-stats"><div><small>NETWORK TIER</small><b>{TIERS[Math.floor((save.unlockedLevel - 1) / 6)]}</b></div><div><small>SIGNAL SHARDS</small><b>{totalShards} / 90</b></div></div>
       </div>
-      <div className="home-footer"><span>30 HANDCRAFTED SYSTEMS</span><span>LOCAL PROGRESS // NO ACCOUNT</span><span>KEYBOARD + TOUCH READY</span></div>
+      <div className="home-footer"><span>MATRICES EVOLVE // 5×5 → 9×9</span><span>LIVE TRACE + ICE DEFENCES</span><span>KEYBOARD + TOUCH READY</span></div>
     </section>
   );
 }
@@ -126,7 +126,7 @@ function CampaignScreen({ save, startCampaign }: { save: SaveData; startCampaign
           {Array.from({ length: 6 }, (_, offset) => tierIndex * 6 + offset + 1).map((level) => {
             const unlocked = level <= save.unlockedLevel; const shards = save.levelShards[level] ?? 0; const puzzle = generatePuzzle(level);
             return <button key={level} className={`level-card ${unlocked ? '' : 'locked'} ${level === save.unlockedLevel ? 'current' : ''}`} disabled={!unlocked} onClick={() => startCampaign(level)}>
-              <span className="level-number">{String(level).padStart(2, '0')}</span>{unlocked ? <><strong>{puzzle.name}</strong><small>{puzzle.targets.length} ROUTINE{puzzle.targets.length > 1 ? 'S' : ''} · {puzzle.timeLimit} SEC</small><span className="shards" aria-label={`${shards} of 3 shards`}>{[1,2,3].map((shard) => <i key={shard} className={shard <= shards ? 'earned' : ''} />)}</span></> : <><LockKeyhole size={18} /><small>ENCRYPTED</small></>}
+              <span className="level-number">{String(level).padStart(2, '0')}</span>{unlocked ? <><strong>{puzzle.name}</strong><small>{puzzle.size}×{puzzle.size} · {puzzle.targets.length} ROUTINE{puzzle.targets.length > 1 ? 'S' : ''} · {puzzle.timeLimit}S</small>{puzzle.instantTrace && <small className="live-trace-label">LIVE TRACE</small>}<span className="shards" aria-label={`${shards} of 3 shards`}>{[1,2,3].map((shard) => <i key={shard} className={shard <= shards ? 'earned' : ''} />)}</span></> : <><LockKeyhole size={18} /><small>ENCRYPTED</small></>}
             </button>;
           })}
         </div></section>)}
@@ -146,9 +146,9 @@ function SequenceDisplay({ codes, buffer, completed }: { codes: string[]; buffer
 function GameScreen({ puzzle, mode, level, settings, streak, onExit, onNextEndless, onResolved }: { puzzle: Puzzle; mode: PlayMode; level: number; settings: SettingsData; streak: number; onExit: () => void; onNextEndless: () => void; onResolved: (result: Result) => void }) {
   const [selected, setSelected] = useState<Coord[]>([]);
   const [buffer, setBuffer] = useState<string[]>([]);
-  const [focus, setFocus] = useState<Coord>({ row: 0, col: 0 });
+  const [focus, setFocus] = useState<Coord>(puzzle.solution[0] ?? { row: 0, col: 0 });
   const [timeLeft, setTimeLeft] = useState(puzzle.timeLimit);
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(puzzle.instantTrace);
   const [paused, setPaused] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [hintCell, setHintCell] = useState<Coord | null>(null);
@@ -156,12 +156,13 @@ function GameScreen({ puzzle, mode, level, settings, streak, onExit, onNextEndle
   const [visibilityPaused, setVisibilityPaused] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const completedIds = useMemo(() => completedTargets(buffer, puzzle.targets), [buffer, puzzle.targets]);
-  const validCells = useMemo(() => activeCells(selected), [selected]);
+  const validCells = useMemo(() => activeCells(selected, puzzle.size, puzzle.blocked), [puzzle.blocked, puzzle.size, selected]);
 
   const reset = useCallback(() => {
-    setSelected([]); setBuffer([]); setFocus({ row: 0, col: 0 }); setTimeLeft(puzzle.timeLimit); setStarted(false); setPaused(false); setResult(null); setHintCell(null); setUsedHint(false);
+    const openingCells = activeCells([], puzzle.size, puzzle.blocked);
+    setSelected([]); setBuffer([]); setFocus(openingCells[0] ?? { row: 0, col: 0 }); setTimeLeft(puzzle.timeLimit); setStarted(puzzle.instantTrace); setPaused(false); setResult(null); setHintCell(null); setUsedHint(false);
     setTimeout(() => boardRef.current?.focus(), 0);
-  }, [puzzle.timeLimit]);
+  }, [puzzle.blocked, puzzle.instantTrace, puzzle.size, puzzle.timeLimit]);
 
   useEffect(() => reset(), [puzzle.id, reset]);
   useEffect(() => {
@@ -189,14 +190,16 @@ function GameScreen({ puzzle, mode, level, settings, streak, onExit, onNextEndle
   const selectCell = useCallback((cell: Coord) => {
     if (paused || result || !validCells.some((valid) => sameCell(valid, cell))) return;
     const code = puzzle.grid[cell.row][cell.col]; const nextSelected = [...selected, cell]; const nextBuffer = [...buffer, code];
+    const remaining = settings.untimed ? timeLeft : Math.max(0, timeLeft - puzzle.selectionCost);
     if (!started) setStarted(true);
+    if (puzzle.selectionCost && !settings.untimed) setTimeLeft(remaining);
     setSelected(nextSelected); setBuffer(nextBuffer); setHintCell(null); tone(settings.sound, 480 + nextBuffer.length * 55);
     const done = completedTargets(nextBuffer, puzzle.targets).length;
-    if (done === puzzle.targets.length || nextBuffer.length >= puzzle.bufferSize) conclude(nextBuffer, timeLeft, usedHint);
+    if (done === puzzle.targets.length || nextBuffer.length >= puzzle.bufferSize || remaining <= 0) conclude(nextBuffer, remaining, usedHint);
     else {
-      const nextValid = activeCells(nextSelected); if (nextValid.length) setFocus(nextValid[0]);
+      const nextValid = activeCells(nextSelected, puzzle.size, puzzle.blocked); if (nextValid.length) setFocus(nextValid[0]);
     }
-  }, [buffer, conclude, paused, puzzle, result, selected, settings.sound, started, timeLeft, usedHint, validCells]);
+  }, [buffer, conclude, paused, puzzle, result, selected, settings.sound, settings.untimed, started, timeLeft, usedHint, validCells]);
 
   const moveFocus = useCallback((direction: number) => {
     if (!validCells.length) return;
@@ -222,19 +225,24 @@ function GameScreen({ puzzle, mode, level, settings, streak, onExit, onNextEndle
   }, [focus, moveFocus, reset, selectCell, selected.length, showHint]);
 
   const axisText = !selected.length ? 'SELECT FROM TOP ROW' : selected.length % 2 === 1 ? `COLUMN ${selected[selected.length - 1].col + 1} ACTIVE` : `ROW ${selected[selected.length - 1].row + 1} ACTIVE`;
-  const tutorial = !selected.length ? 'Study the routines first. The clock starts when you select a code from the top row.' : selected.length === 1 ? 'Good. Your next code must come from the highlighted column.' : selected.length === 2 ? 'Now switch axis and choose from the highlighted row.' : 'Keep alternating row and column. Overlap routines to fit more into the buffer.';
+  const tutorial = !selected.length
+    ? puzzle.instantTrace ? 'The trace is already live. Read fast, commit to a route, and adapt around locked ICE.' : 'Study the routines first. The clock starts when you select a code from the top row.'
+    : selected.length === 1 ? 'Good. Your next code must come from the highlighted column.'
+    : selected.length === 2 ? 'Now switch axis and choose from the highlighted row.'
+    : 'Keep alternating row and column. Overlap routines to fit more into the buffer.';
 
   return (
     <section className={`game-view ${timeLeft <= puzzle.timeLimit * .25 && started ? 'timer-danger' : ''}`} onKeyDown={onKeyDown} ref={boardRef} tabIndex={-1}>
-      <div className="game-head"><button className="back-button" onClick={onExit}><ArrowLeft size={16} /> EXIT</button><div><p className="eyebrow">{puzzle.tier} // {mode === 'campaign' ? String(level).padStart(2, '0') : '∞'}</p><h1>{puzzle.name}</h1></div><div className="timer"><span>{settings.untimed ? 'ACCESSIBILITY MODE' : started ? 'BREACH TIME' : 'STANDBY'}</span><strong>{settings.untimed ? '∞' : formatTime(timeLeft)}</strong><i><span style={{width: `${settings.untimed ? 100 : (timeLeft / puzzle.timeLimit) * 100}%`}} /></i></div></div>
+      <div className="game-head"><button className="back-button" onClick={onExit}><ArrowLeft size={16} /> EXIT</button><div><p className="eyebrow">{puzzle.tier} // {mode === 'campaign' ? String(level).padStart(2, '0') : '∞'}</p><h1>{puzzle.name}</h1></div><div className="timer"><span>{settings.untimed ? 'ACCESSIBILITY MODE' : puzzle.instantTrace ? 'LIVE TRACE' : started ? 'BREACH TIME' : 'STANDBY'}</span><strong>{settings.untimed ? '∞' : formatTime(timeLeft)}</strong><i><span style={{width: `${settings.untimed ? 100 : (timeLeft / puzzle.timeLimit) * 100}%`}} /></i></div></div>
       <div className="game-controls"><button onClick={() => setPaused(true)}><Pause size={14} /> PAUSE</button><button onClick={reset}><RotateCcw size={14} /> RESTART</button><button onClick={showHint}><Lightbulb size={14} /> HINT</button></div>
+      <div className="difficulty-tags" aria-label="Mission modifiers">{puzzle.difficultyTags.map((tag) => <span className={tag === 'LIVE TRACE' || tag.includes('/ INPUT') ? 'pressure' : ''} key={tag}>{tag}</span>)}</div>
       <section className="workspace">
         <article className="matrix-panel">
           <div className="panel-label"><span>CODE MATRIX</span><em>{axisText}</em></div>
-          <div className="matrix" role="grid" aria-label="Code matrix. Use arrow keys or WASD to move and Space to select.">
+          <div className={`matrix ${puzzle.size >= 8 ? 'matrix-large' : ''}`} style={{gridTemplateColumns: `repeat(${puzzle.size}, minmax(0, 1fr))`}} role="grid" aria-label={`${puzzle.size} by ${puzzle.size} code matrix. Use arrow keys or WASD to move and Space to select.`}>
             {puzzle.grid.flatMap((row, rowIndex) => row.map((code, colIndex) => {
-              const cell = { row: rowIndex, col: colIndex }; const valid = validCells.some((item) => sameCell(item, cell)); const chosenIndex = selected.findIndex((item) => sameCell(item, cell)); const focused = sameCell(focus, cell); const hinted = hintCell && sameCell(hintCell, cell);
-              return <button role="gridcell" aria-label={`${code}, row ${rowIndex + 1}, column ${colIndex + 1}${valid ? ', selectable' : ''}`} aria-selected={chosenIndex >= 0} tabIndex={-1} onClick={() => selectCell(cell)} className={`cell ${valid ? 'valid' : ''} ${chosenIndex >= 0 ? 'chosen' : ''} ${focused ? 'focused' : ''} ${hinted ? 'hinted' : ''}`} key={`${rowIndex}-${colIndex}`}><span>{chosenIndex >= 0 ? String(chosenIndex + 1).padStart(2, '0') : code}</span>{chosenIndex >= 0 && <small>{code}</small>}</button>;
+              const cell = { row: rowIndex, col: colIndex }; const blocked = puzzle.blocked.some((item) => sameCell(item, cell)); const valid = validCells.some((item) => sameCell(item, cell)); const chosenIndex = selected.findIndex((item) => sameCell(item, cell)); const focused = sameCell(focus, cell); const hinted = hintCell && sameCell(hintCell, cell);
+              return <button disabled={blocked} role="gridcell" aria-label={blocked ? `ICE locked cell, row ${rowIndex + 1}, column ${colIndex + 1}` : `${code}, row ${rowIndex + 1}, column ${colIndex + 1}${valid ? ', selectable' : ''}`} aria-selected={chosenIndex >= 0} tabIndex={-1} onClick={() => selectCell(cell)} className={`cell ${blocked ? 'blocked' : ''} ${valid ? 'valid' : ''} ${chosenIndex >= 0 ? 'chosen' : ''} ${focused ? 'focused' : ''} ${hinted ? 'hinted' : ''}`} key={`${rowIndex}-${colIndex}`}><span>{blocked ? 'ICE' : chosenIndex >= 0 ? String(chosenIndex + 1).padStart(2, '0') : code}</span>{chosenIndex >= 0 && <small>{code}</small>}</button>;
             }))}
           </div>
           <div className="tutorial-strip"><Lightbulb size={16} /><p>{level === 1 ? tutorial : axisText}</p><span>{selected.length % 2 === 1 ? 'W/S' : 'A/D'} · SPACE</span></div>
@@ -243,8 +251,8 @@ function GameScreen({ puzzle, mode, level, settings, streak, onExit, onNextEndle
           <div className="panel-label"><span>UPLOAD QUEUE</span><em>{completedIds.length} / {puzzle.targets.length} COMPLETE</em></div>
           <div className="targets-list">{puzzle.targets.map((target) => { const complete = completedIds.includes(target.id); return <div className={`target ${complete ? 'complete' : ''}`} key={target.id}><small>{target.id} // ROUTINE</small><SequenceDisplay codes={target.codes} buffer={buffer} completed={complete} /><span>{complete ? <><Check size={13} /> INJECTED</> : `+${target.reward}`}</span></div>; })}</div>
           <div className="buffer-title"><span>INPUT BUFFER</span><small>{buffer.length} / {puzzle.bufferSize}</small></div>
-          <div className="buffer" aria-label={`Buffer contains ${buffer.join(', ') || 'no codes'}`}>{Array.from({ length: puzzle.bufferSize }, (_, index) => <i key={index} className={buffer[index] ? 'filled' : ''}>{buffer[index] ?? ''}</i>)}</div>
-          <div className="objective"><span><Target size={15} /> OBJECTIVE</span><p>Inject as many routines as possible before the buffer or timer expires.</p></div>
+          <div className="buffer" style={{gridTemplateColumns: `repeat(${Math.min(6, puzzle.bufferSize)}, minmax(0, 1fr))`}} aria-label={`Buffer contains ${buffer.join(', ') || 'no codes'}`}>{Array.from({ length: puzzle.bufferSize }, (_, index) => <i key={index} className={buffer[index] ? 'filled' : ''}>{buffer[index] ?? ''}</i>)}</div>
+          <div className="objective"><span><Target size={15} /> OBJECTIVE</span><p>{puzzle.instantTrace ? `Trace is live on entry${puzzle.selectionCost ? ` and every input burns ${puzzle.selectionCost.toFixed(2)} extra seconds` : ''}. Inject every routine before the network severs the link.` : 'Inject as many routines as possible before the buffer or timer expires.'}</p></div>
         </aside>
       </section>
       <p className="sr-live" aria-live="polite">{buffer.length ? `Selected ${buffer[buffer.length - 1]}. ${axisText}` : 'Select a code from the top row.'}</p>
@@ -271,6 +279,7 @@ function GuideScreen({ start }: { start: () => void }) {
     ['02', 'Follow the column', 'Your first selection activates its column. Move vertically and choose the next code from that line.'],
     ['03', 'Switch to the row', 'The second selection activates its row. Continue alternating column, row, column, row.'],
     ['04', 'Compress the routines', 'Target routines may overlap. One shared code can finish one routine and begin another, saving buffer space.'],
+    ['05', 'Adapt under pressure', 'Later networks expand up to 9×9, lock cells behind ICE, start the trace immediately, and charge time for every input.'],
   ];
   return <section className="content-screen guide-screen"><div className="section-heading"><div><p className="eyebrow">FIELD MANUAL // ROUTING BASICS</p><h1>See the path first</h1></div></div><div className="guide-layout"><div className="guide-steps">{steps.map(([number,title,text]) => <article key={number}><span>{number}</span><div><h2>{title}</h2><p>{text}</p></div></article>)}</div><aside className="keys-panel"><p className="panel-label"><span>CONTROL SCHEME</span></p><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>MOVE FOCUS</span></div><div><kbd>↕</kbd><kbd>↔</kbd><span>ARROW KEYS</span></div><div><kbd className="wide">SPACE</kbd><span>SELECT CODE</span></div><div><kbd>H</kbd><span>TRACE HINT</span></div><div><kbd>R</kbd><span>RESTART NODE</span></div><Button className="primary-cta" onClick={start}><Play /> START TRAINING NODE</Button></aside></div></section>;
 }

@@ -7,11 +7,16 @@ export type Puzzle = {
   id: number;
   name: string;
   tier: string;
+  size: number;
   grid: string[][];
   targets: Target[];
   bufferSize: number;
   timeLimit: number;
   solution: Coord[];
+  blocked: Coord[];
+  instantTrace: boolean;
+  selectionCost: number;
+  difficultyTags: string[];
 };
 
 const LEVEL_NAMES = [
@@ -26,6 +31,10 @@ export const TIERS = [
   'TRAINING NODES', 'COMMERCIAL SYSTEMS', 'SECURITY NETWORKS', 'BLACK-SITE INFRASTRUCTURE', 'AUTONOMOUS CORE',
 ];
 
+const BUFFER_SIZES = [6, 8, 10, 11, 12];
+const BASE_TIMES = [32, 28, 24, 20, 18];
+const BLOCKED_COUNTS = [0, 0, 3, 7, 12];
+
 function mulberry32(seed: number) {
   return () => {
     let t = (seed += 0x6d2b79f5);
@@ -39,16 +48,20 @@ function pick<T>(rng: () => number, values: T[]): T {
   return values[Math.floor(rng() * values.length)];
 }
 
-function makeRoute(rng: () => number, length: number): Coord[] {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const route: Coord[] = [{ row: 0, col: Math.floor(rng() * GRID_SIZE) }];
+function sameCell(a: Coord, b: Coord): boolean {
+  return a.row === b.row && a.col === b.col;
+}
+
+function makeRoute(rng: () => number, length: number, size: number): Coord[] {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const route: Coord[] = [{ row: 0, col: Math.floor(rng() * size) }];
     while (route.length < length) {
       const last = route[route.length - 1];
       const chooseColumn = route.length % 2 === 1;
       const candidates: Coord[] = [];
-      for (let i = 0; i < GRID_SIZE; i += 1) {
+      for (let i = 0; i < size; i += 1) {
         const candidate = chooseColumn ? { row: i, col: last.col } : { row: last.row, col: i };
-        if (!route.some((cell) => cell.row === candidate.row && cell.col === candidate.col)) candidates.push(candidate);
+        if (!route.some((cell) => sameCell(cell, candidate))) candidates.push(candidate);
       }
       if (!candidates.length) break;
       route.push(pick(rng, candidates));
@@ -67,60 +80,96 @@ export function completedTargets(buffer: string[], targets: Target[]): string[] 
   return targets.filter((target) => containsSequence(buffer, target.codes)).map((target) => target.id);
 }
 
-export function activeCells(selected: Coord[]): Coord[] {
-  if (!selected.length) return Array.from({ length: GRID_SIZE }, (_, col) => ({ row: 0, col }));
-  const last = selected[selected.length - 1];
-  const chooseColumn = selected.length % 2 === 1;
-  return Array.from({ length: GRID_SIZE }, (_, i) => chooseColumn ? { row: i, col: last.col } : { row: last.row, col: i })
-    .filter((cell) => !selected.some((used) => used.row === cell.row && used.col === cell.col));
+export function activeCells(selected: Coord[], size = GRID_SIZE, blocked: Coord[] = []): Coord[] {
+  const line = !selected.length
+    ? Array.from({ length: size }, (_, col) => ({ row: 0, col }))
+    : (() => {
+        const last = selected[selected.length - 1];
+        const chooseColumn = selected.length % 2 === 1;
+        return Array.from({ length: size }, (_, i) => chooseColumn ? { row: i, col: last.col } : { row: last.row, col: i });
+      })();
+  return line.filter((cell) =>
+    !selected.some((used) => sameCell(used, cell)) &&
+    !blocked.some((locked) => sameCell(locked, cell)),
+  );
 }
 
 function targetSlices(routeCodes: string[], count: number): string[][] {
-  if (count === 1) return [routeCodes.slice(0, Math.min(4, routeCodes.length))];
-  if (count === 2) return [routeCodes.slice(0, 4), routeCodes.slice(3, 7)];
-  return [routeCodes.slice(0, 4), routeCodes.slice(3, 7), routeCodes.slice(6, 9)];
+  return Array.from({ length: count }, (_, index) => routeCodes.slice(index * 3, Math.min(index * 3 + 4, routeCodes.length)));
+}
+
+function makeBlockedCells(rng: () => number, size: number, count: number, solution: Coord[]): Coord[] {
+  const candidates = Array.from({ length: size * size }, (_, index) => ({ row: Math.floor(index / size), col: index % size }))
+    .filter((cell) => !solution.some((routeCell) => sameCell(routeCell, cell)));
+  const blocked: Coord[] = [];
+  while (blocked.length < count && candidates.length) {
+    const index = Math.floor(rng() * candidates.length);
+    blocked.push(candidates.splice(index, 1)[0]);
+  }
+  return blocked;
 }
 
 export function generatePuzzle(level: number, endlessSeed?: number): Puzzle {
   const safeLevel = Math.max(1, Math.min(30, level));
   const tierIndex = Math.floor((safeLevel - 1) / 6);
+  const tierProgress = (safeLevel - 1) % 6;
   const seed = endlessSeed ?? safeLevel * 7919 + 417;
   const rng = mulberry32(seed);
-  const targetCount = safeLevel <= 3 ? 1 : safeLevel <= 12 ? 2 : 3;
-  const bufferSize = targetCount === 1 ? 6 : targetCount === 2 ? 7 : 9;
-  const solution = makeRoute(rng, bufferSize);
-  const grid = Array.from({ length: GRID_SIZE }, () => Array.from({ length: GRID_SIZE }, () => pick(rng, [...TOKENS])));
-  const routeCodes = solution.map((_, index) => pick(rng, [...TOKENS].slice(0, tierIndex > 2 ? 8 : 6)));
+  const size = GRID_SIZE + tierIndex;
+  const targetCount = safeLevel <= 3 ? 1 : safeLevel <= 12 ? 2 : safeLevel <= 24 ? 3 : 4;
+  const bufferSize = BUFFER_SIZES[tierIndex];
+  const solution = makeRoute(rng, bufferSize, size);
+  const grid = Array.from({ length: size }, () => Array.from({ length: size }, () => pick(rng, [...TOKENS])));
+  const routeCodes = solution.map(() => pick(rng, [...TOKENS].slice(0, tierIndex > 2 ? 8 : 6)));
   solution.forEach((cell, index) => { grid[cell.row][cell.col] = routeCodes[index]; });
   const targets = targetSlices(routeCodes, targetCount).map((codes, index) => ({
     id: `R${String(index + 1).padStart(2, '0')}`,
     codes,
-    reward: 120 + index * 80 + tierIndex * 40,
+    reward: 120 + index * 80 + tierIndex * 60,
   }));
+  const blocked = makeBlockedCells(rng, size, BLOCKED_COUNTS[tierIndex], solution);
+  const instantTrace = tierIndex >= 3;
+  const selectionCost = tierIndex === 4 ? 0.6 : tierIndex === 3 ? 0.25 : 0;
+  const timeLimit = BASE_TIMES[tierIndex] - tierProgress;
+  const difficultyTags = [
+    `${size}×${size} MATRIX`,
+    `${targetCount} ROUTINE${targetCount === 1 ? '' : 'S'}`,
+    ...(blocked.length ? [`${blocked.length} ICE LOCKS`] : []),
+    ...(instantTrace ? ['LIVE TRACE'] : []),
+    ...(selectionCost ? [`−${selectionCost.toFixed(2)}s / INPUT`] : []),
+  ];
   const puzzle: Puzzle = {
-    id: endlessSeed ? endlessSeed : safeLevel,
+    id: endlessSeed ?? safeLevel,
     name: endlessSeed ? `Fracture ${String(endlessSeed).slice(-4)}` : LEVEL_NAMES[safeLevel - 1],
     tier: endlessSeed ? 'ENDLESS FRACTURE' : TIERS[tierIndex],
+    size,
     grid,
     targets,
     bufferSize,
-    timeLimit: Math.max(17, 32 - tierIndex * 3 - Math.floor((safeLevel - 1) / 10)),
+    timeLimit,
     solution,
+    blocked,
+    instantTrace,
+    selectionCost,
+    difficultyTags,
   };
   if (!validatePuzzle(puzzle)) throw new Error('Generated puzzle failed validation');
   return puzzle;
 }
 
 export function solvePuzzle(puzzle: Puzzle, selected: Coord[] = [], buffer: string[] = []): Coord[] | null {
+  let explored = 0;
   const visit = (path: Coord[], codes: string[]): Coord[] | null => {
+    explored += 1;
+    if (explored > 150_000) return null;
     if (completedTargets(codes, puzzle.targets).length === puzzle.targets.length) return path;
     if (path.length >= puzzle.bufferSize) return null;
-    const candidates = activeCells(path);
+    const candidates = activeCells(path, puzzle.size, puzzle.blocked);
     const needed = new Set(puzzle.targets.flatMap((target) => target.codes));
     const preferred = puzzle.solution[path.length];
     candidates.sort((a, b) => {
-      const preferredA = preferred && a.row === preferred.row && a.col === preferred.col ? 1 : 0;
-      const preferredB = preferred && b.row === preferred.row && b.col === preferred.col ? 1 : 0;
+      const preferredA = preferred && sameCell(a, preferred) ? 1 : 0;
+      const preferredB = preferred && sameCell(b, preferred) ? 1 : 0;
       return preferredB - preferredA || Number(needed.has(puzzle.grid[b.row][b.col])) - Number(needed.has(puzzle.grid[a.row][a.col]));
     });
     for (const cell of candidates) {
@@ -133,11 +182,14 @@ export function solvePuzzle(puzzle: Puzzle, selected: Coord[] = [], buffer: stri
 }
 
 export function validatePuzzle(puzzle: Puzzle): boolean {
-  if (puzzle.grid.length !== GRID_SIZE || puzzle.grid.some((row) => row.length !== GRID_SIZE)) return false;
+  if (puzzle.size < GRID_SIZE || puzzle.grid.length !== puzzle.size || puzzle.grid.some((row) => row.length !== puzzle.size)) return false;
   if (puzzle.solution.length > puzzle.bufferSize || puzzle.solution[0]?.row !== 0) return false;
-  const legal = puzzle.solution.every((cell, index) => index === 0 || activeCells(puzzle.solution.slice(0, index)).some((candidate) => candidate.row === cell.row && candidate.col === cell.col));
+  const blockedKeys = puzzle.blocked.map((cell) => `${cell.row}:${cell.col}`);
+  if (new Set(blockedKeys).size !== blockedKeys.length) return false;
+  if (puzzle.blocked.some((cell) => cell.row < 0 || cell.col < 0 || cell.row >= puzzle.size || cell.col >= puzzle.size || puzzle.solution.some((routeCell) => sameCell(routeCell, cell)))) return false;
+  const legal = puzzle.solution.every((cell, index) => index === 0 || activeCells(puzzle.solution.slice(0, index), puzzle.size, puzzle.blocked).some((candidate) => sameCell(candidate, cell)));
   const codes = puzzle.solution.map((cell) => puzzle.grid[cell.row][cell.col]);
-  return legal && puzzle.targets.every((target) => containsSequence(codes, target.codes)) && solvePuzzle(puzzle) !== null;
+  return legal && puzzle.targets.every((target) => target.codes.length > 0 && containsSequence(codes, target.codes)) && solvePuzzle(puzzle) !== null;
 }
 
 export function scoreAttempt(completed: number, total: number, timeLeft: number, unusedSlots: number, usedHint: boolean, streak: number): number {

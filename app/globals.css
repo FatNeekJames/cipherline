@@ -82,6 +82,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 1px solid var(--signal
 .level-number { color:var(--signal); font-size:10px; }
 .level-card strong { font-family:var(--font-geist-sans),sans-serif; font-size:16px; font-weight:550; margin-top:6px; }
 .level-card small { color:var(--muted); font-size:8px; letter-spacing:.09em; }
+.level-card .live-trace-label { width:max-content; color:var(--magenta); border-left:2px solid var(--magenta); padding-left:6px; }
 .shards { display:flex; gap:4px; margin-top:auto; }.shards i { width:7px; height:7px; transform:rotate(45deg); background:#183134; border:1px solid #315154; }.shards i.earned{background:var(--warning);border-color:var(--warning);box-shadow:0 0 7px rgba(255,200,87,.3)}
 .level-card.locked { align-items:center; justify-content:center; color:#456063; cursor:not-allowed; opacity:.55; }.level-card.locked:hover{transform:none;border-color:var(--line);background:rgba(10,25,27,.76)}
 
@@ -92,12 +93,17 @@ button:focus-visible, [tabindex]:focus-visible { outline: 1px solid var(--signal
 .timer-danger .timer strong { color:var(--danger); animation:dangerPulse .7s infinite; }.timer-danger .timer>i span{background:var(--danger)}
 .game-controls { display:flex; justify-content:flex-end; gap:7px; margin:-48px 180px 18px 0; }
 .game-controls button { border:1px solid var(--line); background:var(--panel); color:var(--muted); display:flex;align-items:center;gap:6px;padding:7px 10px;font-size:8px;letter-spacing:.1em;cursor:pointer}.game-controls button:hover{color:var(--signal);border-color:var(--line-strong)}
+.difficulty-tags { display:flex; flex-wrap:wrap; gap:6px; margin:-8px 0 18px; }
+.difficulty-tags span { padding:5px 8px; border:1px solid var(--line); background:rgba(17,17,34,.8); color:var(--cyan); font-size:7px; font-weight:700; letter-spacing:.12em; }
+.difficulty-tags span.pressure { color:var(--magenta); border-color:rgba(var(--magenta-rgb),.48); background:rgba(var(--magenta-rgb),.06); }
 .workspace { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(330px,.72fr); border:1px solid var(--line); background:rgba(5,13,15,.85); box-shadow:0 28px 90px rgba(0,0,0,.38); }
 .matrix-panel,.side-panel { padding:clamp(22px,3vw,38px); }
 .matrix-panel { border-right:1px solid var(--line); }
 .side-panel { background:linear-gradient(145deg,rgba(13,32,34,.8),rgba(7,18,20,.85)); }
 .panel-label em { font-style:normal;color:var(--signal); }
 .matrix { outline:none; }
+.matrix-large { gap:5px; }
+.matrix-large .cell { aspect-ratio:1; font-size:clamp(10px,1.35vw,18px); }
 .cell { aspect-ratio:1.3; min-width:0; border:1px solid #173236; background:linear-gradient(135deg,#0b1b1d,#081416); color:#4e686a; font-size:clamp(15px,2vw,25px); cursor:not-allowed; position:relative; transition:.12s ease; overflow:hidden; }
 .cell:after { content:""; position:absolute; width:9px;height:9px;right:-5px;bottom:-5px;transform:rotate(45deg);background:var(--ink);border:1px solid currentColor;opacity:.35; }
 .cell.valid { color:var(--paper); border-color:var(--line-strong); cursor:pointer; background:linear-gradient(135deg,rgba(var(--signal-rgb),.075),var(--panel)); }
@@ -105,6 +111,8 @@ button:focus-visible, [tabindex]:focus-visible { outline: 1px solid var(--signal
 .cell.chosen { color:var(--signal); border-color:rgba(var(--signal-rgb),.35); background:repeating-linear-gradient(135deg,rgba(var(--signal-rgb),.06) 0 4px,transparent 4px 8px); }
 .cell.chosen span { font-size:10px;color:var(--muted);position:absolute;left:7px;top:6px}.cell.chosen small{font-size:clamp(14px,1.7vw,21px);color:var(--signal)}
 .cell.hinted { animation:hintPulse 1s infinite; }
+.cell.blocked { color:var(--magenta); border-color:rgba(var(--magenta-rgb),.3); background:repeating-linear-gradient(135deg,rgba(var(--magenta-rgb),.08) 0 4px,rgba(7,7,18,.95) 4px 8px); cursor:not-allowed; opacity:.62; font-size:clamp(7px,.8vw,10px); letter-spacing:.12em; }
+.cell.blocked:after { width:100%; height:2px; right:0; bottom:50%; transform:rotate(-35deg); border:0; background:var(--magenta); opacity:.24; }
 .tutorial-strip { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; border-top:1px solid var(--line); margin-top:22px; padding-top:18px; color:var(--signal); }
 .tutorial-strip p { margin:0; color:var(--muted); font-family:var(--font-geist-sans),sans-serif; font-size:12px; line-height:1.45; }
 .tutorial-strip span { font-size:8px; letter-spacing:.12em; color:var(--paper); }
@@ -174,3 +182,4 @@ button:focus-visible, [tabindex]:focus-visible { outline: 1px solid var(--signal
 .theme-panel>button.violet i { background:#ff2a6d; }
 .theme-panel>button.amber i { background:#00f0ff; }
 @media(max-width:780px){.mobile-nav{background:rgba(7,7,18,.96)}}
+@media(max-width:780px){.difficulty-tags{margin-top:0}.matrix-large{gap:3px}.matrix-large .cell{font-size:clamp(8px,2.6vw,13px)}.cell.blocked{font-size:7px}}
